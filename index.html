@@ -195,36 +195,90 @@
     }
   }
 
-  function drawAnnotationsOnCanvas(analysis) {
-    const video = document.getElementById('display-video');
-    const canvas = document.getElementById('display-canvas');
-    const ctx = canvas.getContext('2d');
+  // 📸 1. 手機端：以高畫質原生解析度擷取畫面並發送給 AI
+function captureAndAnalyze() {
+  const video = document.getElementById('mobile-video');
+  if (!video.videoWidth) return alert('請先開啟鏡頭！');
 
-    canvas.width = video.videoWidth || 640;
-    canvas.height = video.videoHeight || 480;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  // 建立高解析度 Canvas 進行截圖
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth;   // 使用原生 HD 寬度 (例如 1920)
+  canvas.height = video.videoHeight; // 使用原生 HD 高度 (例如 1080)
+  
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    analysis.paragraphs.forEach(p => {
+  const base64Img = canvas.toDataURL('image/jpeg', 0.92); // 92% 高品質壓縮
+
+  alert('正在發送高畫質照片給 AI 辨識文字段落中，請稍候...');
+
+  fetch(GAS_API_URL, {
+    method: "POST",
+    body: JSON.stringify({ action: "analyzeImage", base64Image: base64Img })
+  })
+  .then(res => res.json())
+  .then(response => {
+    if (response.status === 'success' && dataConn && dataConn.open) {
+      // 將照片原圖與 AI 分析出的真實文字座標一併傳給大螢幕
+      dataConn.send({
+        type: 'ANALYSIS_RESULT',
+        capturedPhoto: base64Img,
+        analysis: response.data
+      });
+      alert('AI 已完成文字段落辨識與標記！');
+    } else {
+      alert("AI 分析失敗：" + (response.message || "未知錯誤"));
+    }
+  })
+  .catch(err => alert("API 呼叫失敗: " + err));
+}
+
+// 🎨 2. 大螢幕呈現端：將高畫質照片與 AI 動態座標繪製在 Canvas 上
+function drawAnnotationsOnCanvas(data) {
+  const canvas = document.getElementById('display-canvas');
+  const ctx = canvas.getContext('2d');
+  
+  const img = new Image();
+  img.onload = function() {
+    // Canvas 尺寸自動適應高畫質照片規格
+    canvas.width = img.width;
+    canvas.height = img.height;
+
+    // A. 繪製拍攝的高畫質原圖
+    ctx.drawImage(img, 0, 0);
+
+    // B. 依據 AI 實時分析出的文字座標，塗上螢光畫筆與標籤
+    data.analysis.paragraphs.forEach(p => {
       const rx = p.rect.x * canvas.width;
       const ry = p.rect.y * canvas.height;
       const rw = p.rect.width * canvas.width;
       const rh = p.rect.height * canvas.height;
 
+      // 1. 半透明螢光筆區塊
       ctx.fillStyle = p.color;
       ctx.fillRect(rx, ry, rw, rh);
 
+      // 2. 邊框線
       ctx.strokeStyle = p.borderColor;
-      ctx.lineWidth = 3;
+      ctx.lineWidth = Math.max(3, canvas.width * 0.003);
       ctx.strokeRect(rx, ry, rw, rh);
 
-      const fontSize = Math.max(14, canvas.width * 0.022);
+      // 3. 結構氣泡標籤
+      const fontSize = Math.max(16, canvas.width * 0.02);
       ctx.font = `bold ${fontSize}px sans-serif`;
+      const textWidth = ctx.measureText(p.label).width;
+
       ctx.fillStyle = p.borderColor;
-      ctx.fillRect(rx, ry - fontSize - 6, ctx.measureText(p.label).width + 12, fontSize + 8);
-      ctx.fillStyle = "#fff";
-      ctx.fillText(p.label, rx + 6, ry - 6);
+      ctx.fillRect(rx, ry - fontSize - 10, textWidth + 16, fontSize + 10);
+
+      ctx.fillStyle = "#ffffff";
+      ctx.fillText(p.label, rx + 8, ry - 6);
     });
-  }
+  };
+  
+  // 若包含擷取的高畫質照片則繪製該圖
+  img.src = data.capturedPhoto;
+}
 
   function playAudio(type) {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
