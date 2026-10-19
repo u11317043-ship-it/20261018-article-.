@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>語文靈感 × 結構解密 (AI 助理與鏡頭控制版)</title>
+  <title>語文靈感 × 結構解密 - 寫作互動教具</title>
+  <!-- 引入套件：PeerJS (雙螢幕串流), Chart.js (情感圖表), QRCode.js (掃碼) -->
   <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -11,43 +12,48 @@
     :root { --primary: #4a90e2; --secondary: #50e3c2; --bg: #f4f7f6; --card-bg: #ffffff; }
     body { font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif; margin: 0; padding: 0; background: var(--bg); color: #333; }
     header { background: var(--primary); color: white; padding: 12px 20px; text-align: center; font-size: 1.2rem; font-weight: bold; }
-    .container { padding: 15px; max-width: 1400px; margin: 0 auto; }
+    .container { padding: 15px; max-width: 1500px; margin: 0 auto; }
     
     .btn { padding: 8px 16px; border: none; border-radius: 6px; background: var(--primary); color: white; font-size: 0.95rem; cursor: pointer; transition: 0.2s; }
     .btn:hover { opacity: 0.9; }
     .btn-secondary { background: #6c757d; }
     .btn-success { background: #28a745; }
     .btn-warning { background: #ff9800; }
+    .btn:disabled { background: #ccc; cursor: not-allowed; }
 
-    /* 版面配置：左側畫面區 (60%) + 右側 AI 對話與報告區 (40%) */
-    .grid-main { display: grid; grid-template-columns: 1fr; gap: 15px; }
-    @media (min-width: 992px) { .grid-main { grid-template-columns: 1.2fr 0.8fr; } }
+    /* 明確的左右雙欄版面配置：左側 60% (實時畫面與教具) | 右側 40% (AI 對話與報告) */
+    .grid-layout { display: grid; grid-template-columns: 1fr; gap: 15px; }
+    @media (min-width: 992px) { .grid-layout { grid-template-columns: 1.2fr 0.8fr; } }
     
     .card { background: var(--card-bg); border-radius: 8px; padding: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 15px; }
     .card h3 { margin-top: 0; color: var(--primary); border-bottom: 2px solid #f0f0f0; padding-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
 
-    .video-box { position: relative; width: 100%; background: #000; border-radius: 8px; overflow: hidden; min-height: 300px; }
+    /* 視訊與 Canvas 疊加容器 */
+    .video-box { position: relative; width: 100%; background: #000; border-radius: 8px; overflow: hidden; min-height: 320px; }
     video { width: 100%; height: auto; display: block; }
     canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
 
-    /* 凍結狀態指示燈 */
-    .freeze-badge { background: #e65100; color: white; font-size: 0.8rem; padding: 4px 8px; border-radius: 4px; display: none; }
+    /* 狀態提示標籤 */
+    .status-badge { font-size: 0.8rem; padding: 4px 10px; border-radius: 12px; font-weight: normal; }
+    .status-live { background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
+    .status-frozen { background: #fff3e0; color: #e65100; border: 1px solid #ffcc80; }
 
-    /* 右側 AI 對話框與歷史紀錄 */
-    .chat-container { display: flex; flex-direction: column; height: 500px; border: 1px solid #e0e0e0; border-radius: 8px; background: #fafafa; }
-    .chat-messages { flex: 1; padding: 12px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
-    .msg { max-width: 85%; padding: 10px 14px; border-radius: 12px; font-size: 0.95rem; line-height: 1.5; }
+    /* 右側 AI 對話視窗 */
+    .chat-container { display: flex; flex-direction: column; height: 520px; border: 1px solid #e0e0e0; border-radius: 8px; background: #fafafa; }
+    .chat-messages { flex: 1; padding: 12px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+    .msg { max-width: 88%; padding: 10px 14px; border-radius: 12px; font-size: 0.95rem; line-height: 1.5; }
     .msg-user { align-self: flex-end; background: #e3f2fd; color: #0d47a1; border-bottom-right-radius: 2px; }
     .msg-ai { align-self: flex-start; background: #ffffff; color: #212121; border: 1px solid #e0e0e0; border-bottom-left-radius: 2px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
 
-    .ai-badge { display: inline-block; background: #e1f5fe; color: #0288d1; border: 1px solid #81d4fa; padding: 3px 8px; border-radius: 12px; font-size: 0.8rem; margin: 2px; font-weight: bold; }
-    
-    .chat-input-area { padding: 10px; background: white; border-top: 1px solid #e0e0e0; display: flex; gap: 8px; align-items: center; }
-    .chat-input-area input[type="text"] { flex: 1; padding: 8px 12px; border: 1px solid #ccc; border-radius: 20px; font-size: 0.95rem; }
+    /* 修辭與風格徽章 */
+    .rhetoric-badge { display: inline-block; background: #e1f5fe; color: #0288d1; border: 1px solid #81d4fa; padding: 3px 8px; border-radius: 12px; font-size: 0.8rem; margin: 2px; font-weight: bold; }
+    .vocab-tag { display: inline-block; background: #e8f5e9; color: #2e7d32; padding: 5px 10px; border-radius: 15px; margin: 3px; font-size: 0.9rem; font-weight: bold; }
 
-    /* 圖表容器 */
+    /* 對話框底欄輸入區 */
+    .chat-input-bar { padding: 10px; background: white; border-top: 1px solid #e0e0e0; display: flex; gap: 8px; align-items: center; }
+    .chat-input-bar input[type="text"] { flex: 1; padding: 8px 12px; border: 1px solid #ccc; border-radius: 20px; font-size: 0.95rem; }
+
     .chart-box { height: 180px; width: 100%; margin-top: 10px; }
-
     .hidden { display: none !important; }
   </style>
 </head>
@@ -56,7 +62,7 @@
 <header>語文靈感 × 結構解密：寫作互動教具</header>
 
 <div class="container">
-  <!-- 角色選擇 -->
+  <!-- 裝置角色選擇 -->
   <div id="setup-panel" class="card">
     <h3>請選擇當前裝置角色</h3>
     <div style="display:flex; gap:10px; justify-content:center;">
@@ -65,15 +71,15 @@
     </div>
   </div>
 
-  <!-- ==================== 呈現端 (Display) ==================== -->
+  <!-- ==================== 呈現端 (Display Mode) ==================== -->
   <div id="display-panel" class="hidden">
-    <div class="grid-main">
-      <!-- 左欄：實時畫面 / 凍結畫面與 WebNFC 控制 -->
+    <div class="grid-layout">
+      <!-- 左欄 (60%)：實時鏡頭預覽 / 凍結分析畫面 & WebNFC 教具區 -->
       <div>
         <div class="card">
           <h3>
-            ① 文本結構剖析 (鏡頭實時畫面)
-            <span id="freeze-indicator" class="freeze-badge">⏸️ 畫面已凍結進行 AI 分析</span>
+            ① 文本結構剖析 (鏡頭畫面)
+            <span id="cam-status-badge" class="status-badge status-live">🔴 實時串流中</span>
           </h3>
           <div class="video-box">
             <video id="display-video" autoplay playsinline muted></video>
@@ -82,25 +88,25 @@
           <p id="stream-status" style="font-size:0.85rem; color:gray; margin-top:6px;">等待手機端連線開鏡頭串流...</p>
         </div>
 
-        <!-- 五感解密與修辭挑戰 (全套 WebNFC 保留) -->
+        <!-- 五感解密 (WebNFC 實體觸控) -->
         <div class="card">
-          <h3>② 五感解密 (NFC 實體觸控)[cite: 1]</h3>
-          <div id="vocab-box">請用手機感應 NFC 教具，在此顯示詞彙與挑戰...[cite: 1]</div>
+          <h3>② 五感解密 (NFC 實體觸控)</h3>
+          <div id="vocab-box">請用手機感應 NFC 教具，將在此顯示詞彙庫與挑戰題...[cite: 1]</div>
           <div id="challenge-box" style="margin-top:10px; font-weight:bold; color:#d32f2f;"></div>
         </div>
 
-        <!-- 學生改寫成果展示 -->
+        <!-- 潤飾重構 (學生段落改寫) -->
         <div class="card">
           <h3>③ 潤飾重構 (學生改寫成果)[cite: 1]</h3>
-          <div id="student-rewrite-display" style="font-size:1rem; color:#2c3e50;">等待學生提交...</div>
+          <div id="student-rewrite-display" style="font-size:1rem; color:#2c3e50;">等待學生提交內容...[cite: 1]</div>
         </div>
       </div>
 
-      <!-- 右欄：AI 對話框 (歷史紀錄 + 檔案上傳 + 情感圖表 + 報告下載 + 復原鏡頭按鈕) -->
+      <!-- 右欄 (40%)：大螢幕配對碼 & 右側 AI 對話框 (含歷史紀錄、檔案上傳、圖表與控制按鈕) -->
       <div>
         <div class="card">
-          <h3>跨裝置配對號碼</h3>
-          <p style="margin:4px 0;">配對號碼：<strong id="room-id-display" style="color:red;">產生中...</strong></p>
+          <h3>跨裝置配對</h3>
+          <p style="margin:4px 0;">配對房間碼：<strong id="room-id-display" style="color:red;">產生中...</strong></p>
           <div id="qrcode" style="display:flex; justify-content:center; margin:6px 0;"></div>
         </div>
 
@@ -108,14 +114,14 @@
           <h3>🤖 AI 語文寫作助理 (對話與分析報告)</h3>
           
           <div class="chat-container">
-            <!-- 對話紀錄區 -->
+            <!-- 1. AI 對話紀錄區 -->
             <div id="chat-messages" class="chat-messages">
               <div class="msg msg-ai">
-                👋 您好！我是 AI 語文助理。當手機拍下作文時，畫面會<b>暫停凍結</b>並在此為您生成結構標示、修辭徽章與情感起伏圖表！[cite: 1]
+                👋 您好！我是 Gemini AI 語文助理。當手機拍攝作文時，<b>大螢幕畫面會暫停凍結</b>，並在此生成段落結構標示、修辭徽章與情感起伏圖表！[cite: 1]
               </div>
             </div>
 
-            <!-- 控制面板：復原鏡頭與下載報告 -->
+            <!-- 2. 閱讀完成 (重啟鏡頭) 與 下載報告控制面板 -->
             <div style="padding:8px 12px; background:#fff3e0; border-top:1px solid #ffe0b2; display:flex; gap:8px; justify-content:space-between; align-items:center;">
               <button id="resume-cam-btn" class="btn btn-warning" style="font-size:0.85rem;" onclick="unfreezeAndResumeStream()" disabled>
                 ▶️ 閱讀完成 (重啟鏡頭)
@@ -125,11 +131,11 @@
               </button>
             </div>
 
-            <!-- 對話輸入與檔案上傳 -->
-            <div class="chat-input-area">
+            <!-- 3. 多檔案上傳 (圖片/文字檔/PDF) 與 對話輸入框 -->
+            <div class="chat-input-bar">
               <label for="file-upload" class="btn btn-secondary" style="padding:6px 10px; cursor:pointer;" title="上傳圖片、文字檔或 PDF">📎</label>
               <input type="file" id="file-upload" accept="image/*,.txt,.pdf" style="display:none;" onchange="handleFileUpload(event)">
-              <input type="text" id="chat-input" placeholder="對 AI 提問，例如：如何加強轉折段？" onkeypress="if(event.key==='Enter') sendChatMessage()">
+              <input type="text" id="chat-input" placeholder="詢問 AI，例如：如何增加修辭感染力？" onkeypress="if(event.key==='Enter') sendChatMessage()">
               <button class="btn" onclick="sendChatMessage()">傳送</button>
             </div>
           </div>
@@ -138,7 +144,7 @@
     </div>
   </div>
 
-  <!-- ==================== 感應端 (Mobile) ==================== -->
+  <!-- ==================== 感應端 (Mobile Mode) ==================== -->
   <div id="mobile-panel" class="hidden">
     <div class="card">
       <h3>配對大螢幕</h3>
@@ -153,12 +159,12 @@
         <video id="mobile-video" autoplay playsinline muted></video>
       </div>
       <div style="display:flex; gap:10px; margin-top:10px;">
-        <button class="btn" style="flex:1;" onclick="startMobileCamera()">📷 開啟鏡頭並同步串流</button>
+        <button class="btn" style="flex:1;" onclick="startMobileCamera()">📷 開啟鏡頭並串流</button>
         <button id="mobile-capture-btn" class="btn btn-success" style="flex:1;" onclick="captureAndFreeze()">📸 拍照並分析結構</button>
       </div>
     </div>
 
-    <!-- WebNFC 實體教具區 (全套保留) -->
+    <!-- WebNFC 實體教具區 -->
     <div class="card" style="margin-top:15px;">
       <h3>② 五感解密 (WebNFC 實體觸控)[cite: 1]</h3>
       <button class="btn btn-success" style="width:100%; padding:10px;" onclick="startNfcScan()">📡 開啟 NFC 讀取器[cite: 1]</button>
@@ -181,13 +187,13 @@
 </div>
 
 <script>
+  // 💡 請填入您部署好的 GAS API URL (https://script.google.com/macros/s/XXXXX/exec)
   const GAS_API_URL = "https://script.google.com/macros/s/AKfycbzubn87dxxTPEA-zbZKLNe1uY7Yg6IbW3V1JoPBjKV31gAzSYjzopxxhXTCvsW1TrTv/exec";
   
   let peer = null, dataConn = null, mediaStream = null;
   let roomId = "ROOM-" + Math.floor(1000 + Math.random() * 9000);
   let isFrozen = false;
   let currentAnalysisData = null;
-  let emotionChartInstance = null;
 
   const nfcDataMap = {
     "NFC_SENSE_01": {
@@ -231,11 +237,9 @@
   }
 
   function handleIncomingData(data) {
-    // 收到手機端的凍結畫面訊號
     if (data.type === 'FREEZE_AND_ANALYZE') {
       freezeStreamAndDisplayCaptured(data.capturedPhoto, data.analysis);
     }
-    // 收到手機端要求復原鏡頭
     if (data.type === 'RESUME_STREAM') {
       unfreezeLocalStream();
     }
@@ -254,17 +258,20 @@
     }
   }
 
-  // ❄️ 2. 核心功能：凍結畫面並進行 AI 結構標記與報告生成
+  // ❄️ 功能 2：凍結實時畫面並進行 AI 結構標記與圖表生成
   function freezeStreamAndDisplayCaptured(photoBase64, analysis) {
     isFrozen = true;
     currentAnalysisData = analysis;
     
-    // 顯示凍結標籤與啟用「閱讀完成」按鈕
-    document.getElementById('freeze-indicator').style.display = 'inline-block';
+    // 更新狀態 UI
+    const badge = document.getElementById('cam-status-badge');
+    badge.className = 'status-badge status-frozen';
+    badge.innerText = '⏸️ 畫面已凍結，進行 AI 分析中';
+    
     document.getElementById('resume-cam-btn').disabled = false;
-    document.getElementById('stream-status').innerText = '⏸️ 畫面已凍結於擷取幀，鏡頭暫停中';
+    document.getElementById('stream-status').innerText = '⏸️ 畫面暫停中 (請於右側點擊「閱讀完成」恢復鏡頭)';
 
-    // 暫停影音預覽，繪製靜態圖與 Canvas 標記
+    // 暫停預覽影片，繪製 static 原圖與 AI 螢光框
     const video = document.getElementById('display-video');
     video.pause();
 
@@ -277,7 +284,7 @@
       canvas.height = img.height;
       ctx.drawImage(img, 0, 0);
 
-      // 繪製 AI 段落螢光區塊
+      // 繪製 AI 抓取的段落螢光黃/藍繪筆
       analysis.paragraphs.forEach(p => {
         const rx = p.rect.x * canvas.width;
         const ry = p.rect.y * canvas.height;
@@ -300,26 +307,26 @@
     };
     img.src = photoBase64;
 
-    // 3. 在右側 AI 對話框生成分析報告與情感圖表
+    // 📊 功能 3：在右側 AI 對話框發布分析標誌與 Chart.js 圖表
     appendAiAnalysisToChat(analysis);
     playAudio('tag');
   }
 
-  // 🖼️ 在 AI 對話框發布動態徽章與 Chart.js 情感曲線圖
+  // 右側對話框發布報告卡片
   function appendAiAnalysisToChat(analysis) {
     const chatMsgs = document.getElementById('chat-messages');
     
     let badgesHtml = '';
     if (analysis.rhetoricBadges) {
-      analysis.rhetoricBadges.forEach(b => { badgesHtml += `<span class="ai-badge">${b}</span>`; });
+      analysis.rhetoricBadges.forEach(b => { badgesHtml += `<span class="rhetoric-badge">${b}</span>`; });
     }
 
     const chartId = 'chart-' + Date.now();
     
     const msgHtml = `
       <div class="msg msg-ai">
-        <strong>🔍 AI 文本分析報告：</strong><br>
-        ${analysis.summaryReport || '文章結構分析完成！'}<br>
+        <strong>🔍 Gemini AI 結構分析報告：</strong><br>
+        ${analysis.summaryReport || '文章分析完成！'}<br>
         <div style="margin-top:6px;"><strong>偵測修辭/手法：</strong>${badgesHtml}</div>
         <div style="margin-top:8px;"><strong>情感起伏折線圖：</strong></div>
         <div class="chart-box"><canvas id="${chartId}"></canvas></div>
@@ -329,7 +336,7 @@
     chatMsgs.insertAdjacentHTML('beforeend', msgHtml);
     chatMsgs.scrollTop = chatMsgs.scrollHeight;
 
-    // 渲染 Chart.js 情感曲線圖
+    // 動態繪製 Chart.js 折線圖
     setTimeout(() => {
       const ctx = document.getElementById(chartId).getContext('2d');
       const scores = analysis.paragraphs.map(p => p.emotionScore || 50);
@@ -353,10 +360,14 @@
     }, 100);
   }
 
-  // ▶️ 按下「閱讀完成」復原鏡頭與畫面
+  // ▶️ 點擊「閱讀完成」重啟鏡頭與畫面
   function unfreezeAndResumeStream() {
     isFrozen = false;
-    document.getElementById('freeze-indicator').style.display = 'none';
+    
+    const badge = document.getElementById('cam-status-badge');
+    badge.className = 'status-badge status-live';
+    badge.innerText = '🔴 實時串流中';
+
     document.getElementById('resume-cam-btn').disabled = true;
     document.getElementById('stream-status').innerText = '✅ 正同步接收手機實時預覽畫面';
 
@@ -367,17 +378,16 @@
     const canvas = document.getElementById('display-canvas');
     canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
 
-    // 發送連線通知給手機端恢復
     if (dataConn && dataConn.open) {
       dataConn.send({ type: 'RESUME_STREAM' });
     }
   }
 
   function unfreezeLocalStream() {
-    alert('呈現端已點擊「閱讀完成」，實時鏡頭恢復運作！');
+    alert('呈現端點擊「閱讀完成」，鏡頭恢復實時預覽！');
   }
 
-  // 1. 上傳檔案 (圖片、純文字檔或 PDF) 分析
+  // 1. 右側對話框：上傳圖片、文字檔或 PDF
   function handleFileUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -397,7 +407,7 @@
   }
 
   function sendFileToAiChat(fileContent, fileType) {
-    appendUserMsg(`上傳了檔案分析：${fileType.toUpperCase()}`);
+    appendUserMsg(`上傳檔案分析：${fileType.toUpperCase()}`);
     
     fetch(GAS_API_URL, {
       method: "POST",
@@ -436,7 +446,7 @@
   function appendAiMsg(text, badges) {
     const msgs = document.getElementById('chat-messages');
     let badgesHtml = '';
-    if (badges) badges.forEach(b => { badgesHtml += `<span class="ai-badge">${b}</span>`; });
+    if (badges) badges.forEach(b => { badgesHtml += `<span class="rhetoric-badge">${b}</span>`; });
     msgs.insertAdjacentHTML('beforeend', `<div class="msg msg-ai">${text}<div>${badgesHtml}</div></div>`);
     msgs.scrollTop = msgs.scrollHeight;
   }
@@ -444,7 +454,7 @@
   // 📥 下載分析報告
   function downloadAnalysisReport() {
     if (!currentAnalysisData) return alert('目前尚無分析報告，請先進行照片或文字分析！');
-    const reportText = `語文靈感 × 結構解密 - 分析報告\n\nAI 點評：\n${currentAnalysisData.summaryReport || '無'}\n\n修辭標籤：${(currentAnalysisData.rhetoricBadges || []).join(', ')}`;
+    const reportText = `語文靈感 × 結構解密 - 分析報告\n\nGemini 點評：\n${currentAnalysisData.summaryReport || '無'}\n\n修辭標籤：${(currentAnalysisData.rhetoricBadges || []).join(', ')}`;
     const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -452,7 +462,7 @@
     a.click();
   }
 
-  // ================= 感應端邏輯 (Mobile) =================
+  // 感應端邏輯
   function initMobileMode() {
     document.getElementById('setup-panel').classList.add('hidden');
     document.getElementById('mobile-panel').classList.remove('hidden');
@@ -473,7 +483,7 @@
     peer.on('open', () => {
       dataConn = peer.connect(targetRoom);
       dataConn.on('open', () => {
-        document.getElementById('conn-status').innerText = '✅ 已連線大螢幕';
+        document.getElementById('conn-status').innerText = '✅ 已連線';
         document.getElementById('conn-status').style.color = 'green';
       });
     });
@@ -490,11 +500,11 @@
       const targetRoom = document.getElementById('input-room-id').value;
       if (peer && targetRoom) peer.call(targetRoom, mediaStream);
     } catch (err) {
-      alert("鏡頭存取失敗: " + err.message);
+      alert("鏡頭開啟失敗: " + err.message);
     }
   }
 
-  // 📸 按下拍攝：擷取高畫質畫面，送給 AI 並通知大螢幕凍結
+  // 📸 手機端按下拍攝：擷取高畫質畫面發送給 AI，並通知大螢幕凍結畫面
   function captureAndFreeze() {
     const video = document.getElementById('mobile-video');
     if (!video.videoWidth) return alert('請先開啟鏡頭！');
@@ -506,7 +516,7 @@
 
     const base64Img = canvas.toDataURL('image/jpeg', 0.92);
 
-    alert('正在發送高畫質畫面給 AI 進行分析，大螢幕將暫停凍結畫面...');
+    alert('正在將高畫質畫面發送給 Gemini AI 分析，大螢幕畫面將暫停凍結...');
 
     fetch(GAS_API_URL, {
       method: "POST",
@@ -515,7 +525,6 @@
     .then(res => res.json())
     .then(response => {
       if (response.status === 'success' && dataConn && dataConn.open) {
-        // 發送畫面凍結與 AI 分析數據
         dataConn.send({
           type: 'FREEZE_AND_ANALYZE',
           capturedPhoto: base64Img,
