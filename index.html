@@ -1,25 +1,369 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <script>
-  // 💡 手機全局錯誤捕捉：只要程式碼報錯，手機會直接彈出警示視窗告知原因
-  window.onerror = function(msg, url, lineNo, columnNo, error) {
-    alert("⚠️ 手機端程式碼執行錯誤：\n" + msg + "\n行號：" + lineNo);
+  // 💡 全局錯誤捕捉（若有錯誤會彈出提示）
+  window.onerror = function(msg, url, lineNo) {
+    alert("⚠️ 腳本執行錯誤：" + msg + "\n行號：" + lineNo);
     return false;
   };
 
-  // 💡 請確認此處已替換為您正確的 GAS 部署網址（須以 /exec 結尾）
-  const GAS_API_URL = "AKfycbzubn87dxxTPEA-zbZKLNe1uY7Yg6IbW3V1JoPBjKV31gAzSYjzopxxhXTCvsW1TrTv";
+  // 💡 請務必將此處替換為您 GAS 部署的 API 網址（前後必須有雙引號 ""，且以 /exec 結尾）
+  const GAS_API_URL = "https://script.google.com/macros/s/AKfycbzubn87dxxTPEA-zbZKLNe1uY7Yg6IbW3V1JoPBjKV31gAzSYjzopxxhXTCvsW1TrTv/exec";
   
-  // (下方接原本的邏輯程式碼...)
+  let peer = null, dataConn = null, mediaStream = null;
+  let roomId = "ROOM-" + Math.floor(1000 + Math.random() * 9000);
+  let isFrozen = false;
+  let currentAnalysisData = null;
+
+  const nfcDataMap = {
+    "NFC_SENSE_01": { title: "【五感細節卡：視覺摹寫】", vocabs: ["微光斑駁", "影影綽綽", "璀璨耀眼"], challenge: "加入『微光斑駁』修辭！" },
+    "NFC_RHETORIC_01": { title: "【修辭手法卡：轉化 / 擬人】", vocabs: ["微風吟唱", "歲月偷走", "孤獨對話"], challenge: "寫出一句擬人句！" }
+  };
+
+  // 1. 大螢幕呈現端初始化
+  function initDisplayMode() {
+    document.getElementById('setup-panel').classList.add('hidden');
+    document.getElementById('display-panel').classList.remove('hidden');
+    document.getElementById('room-id-display').innerText = roomId;
+
+    const targetPairUrl = window.location.href.split('?')[0] + "?room=" + roomId;
+    new QRCode(document.getElementById("qrcode"), { text: targetPairUrl, width: 110, height: 110 });
+
+    peer = new Peer(roomId);
+    peer.on('connection', (c) => {
+      dataConn = c;
+      dataConn.on('data', handleIncomingData);
+      alert('📱 手機端已連線！');
+    });
+
+    peer.on('call', (call) => {
+      call.answer();
+      call.on('stream', (remoteStream) => {
+        if (!isFrozen) {
+          const displayVid = document.getElementById('display-video');
+          displayVid.srcObject = remoteStream;
+          document.getElementById('stream-status').innerText = '✅ 正同步接收手機預覽畫面';
+        }
+      });
+    });
+  }
+
+  // 2. 手機端初始化 (修復原本提示 undefined 的函式)
+  function initMobileMode() {
+    document.getElementById('setup-panel').classList.add('hidden');
+    document.getElementById('mobile-panel').classList.remove('hidden');
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlRoom = urlParams.get('room');
+    if (urlRoom) {
+      document.getElementById('input-room-id').value = urlRoom;
+      connectToDisplay();
+    }
+  }
+
+  function connectToDisplay() {
+    const targetRoom = document.getElementById('input-room-id').value;
+    if (!targetRoom) return alert('請輸入號碼');
+
+    peer = new Peer();
+    peer.on('open', () => {
+      dataConn = peer.connect(targetRoom);
+      dataConn.on('open', () => {
+        document.getElementById('conn-status').innerText = '✅ 已連線';
+        document.getElementById('conn-status').style.color = 'green';
+      });
+    });
+  }
+
+  function handleIncomingData(data) {
+    if (data.type === 'FREEZE_AND_ANALYZE') {
+      freezeStreamAndDisplayCaptured(data.capturedPhoto, data.analysis);
+    }
+    if (data.type === 'RESUME_STREAM') {
+      unfreezeLocalStream();
+    }
+    if (data.type === 'NFC_TRIGGER') {
+      const nfcObj = nfcDataMap[data.payload] || { title: "教具卡：" + data.payload, vocabs: ["豐富詞彙"], challenge: "融入寫作中！" };
+      let html = `<h4 style="margin:5px 0; color:#0288d1;">${nfcObj.title}</h4><div>`;
+      nfcObj.vocabs.forEach(v => { html += `<span class="vocab-tag">${v}</span>`; });
+      html += `</div>`;
+      document.getElementById('vocab-box').innerHTML = html;
+      document.getElementById('challenge-box').innerText = nfcObj.challenge;
+      playAudio('nfc');
+    }
+    if (data.type === 'REWRITE_SUBMIT') {
+      document.getElementById('student-rewrite-display').innerHTML = `<p><strong>改寫內容：</strong>${data.text}</p>`;
+      playAudio('success');
+    }
+  }
+
+  function freezeStreamAndDisplayCaptured(photoBase64, analysis) {
+    isFrozen = true;
+    currentAnalysisData = analysis;
+    
+    const badge = document.getElementById('cam-status-badge');
+    badge.className = 'status-badge status-frozen';
+    badge.innerText = '⏸️ 畫面已凍結，進行 AI 分析中';
+    
+    document.getElementById('resume-cam-btn').disabled = false;
+    document.getElementById('stream-status').innerText = '⏸️ 畫面暫停中';
+
+    const video = document.getElementById('display-video');
+    video.pause();
+
+    const canvas = document.getElementById('display-canvas');
+    const ctx = canvas.getContext('2d');
+    const img = new Image();
+    
+    img.onload = function() {
+      canvas.width = img.width;
+      canvas.height = img.height;
+      ctx.drawImage(img, 0, 0);
+
+      if (analysis.paragraphs && analysis.paragraphs.length > 0) {
+        analysis.paragraphs.forEach(p => {
+          const rx = p.rect.x * canvas.width;
+          const ry = p.rect.y * canvas.height;
+          const rw = p.rect.width * canvas.width;
+          const rh = p.rect.height * canvas.height;
+
+          ctx.fillStyle = p.color || "rgba(74, 144, 226, 0.4)";
+          ctx.fillRect(rx, ry, rw, rh);
+          ctx.strokeStyle = p.borderColor || "#4a90e2";
+          ctx.lineWidth = Math.max(3, canvas.width * 0.003);
+          ctx.strokeRect(rx, ry, rw, rh);
+
+          const fontSize = Math.max(14, canvas.width * 0.022);
+          ctx.font = `bold ${fontSize}px sans-serif`;
+          ctx.fillStyle = p.borderColor || "#4a90e2";
+          ctx.fillRect(rx, ry - fontSize - 6, ctx.measureText(p.label).width + 12, fontSize + 8);
+          ctx.fillStyle = "#fff";
+          ctx.fillText(p.label, rx + 6, ry - 6);
+        });
+      }
+    };
+    img.src = photoBase64;
+
+    appendAiAnalysisToChat(analysis);
+    playAudio('tag');
+  }
+
+  function appendAiAnalysisToChat(analysis) {
+    const chatMsgs = document.getElementById('chat-messages');
+    let badgesHtml = '';
+    if (analysis.rhetoricBadges) {
+      analysis.rhetoricBadges.forEach(b => { badgesHtml += `<span class="rhetoric-badge">${b}</span>`; });
+    }
+
+    const chartId = 'chart-' + Date.now();
+    const msgHtml = `
+      <div class="msg msg-ai">
+        <strong>🔍 Gemini AI 結構分析報告：</strong><br>
+        ${analysis.summaryReport || '文章分析完成！'}<br>
+        <div style="margin-top:6px;"><strong>偵測修辭/手法：</strong>${badgesHtml}</div>
+        <div style="margin-top:8px;"><strong>情感起伏折線圖：</strong></div>
+        <div class="chart-wrapper"><canvas id="${chartId}"></canvas></div>
+      </div>
+    `;
+
+    chatMsgs.insertAdjacentHTML('beforeend', msgHtml);
+    chatMsgs.scrollTop = chatMsgs.scrollHeight;
+
+    setTimeout(() => {
+      const ctx = document.getElementById(chartId).getContext('2d');
+      const scores = (analysis.paragraphs || []).map(p => p.emotionScore || 50);
+      const labels = (analysis.paragraphs || []).map(p => p.type || '段落');
+
+      new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels.length > 0 ? labels : ['起', '承', '轉', '合'],
+          datasets: [{
+            label: '情感起伏曲線',
+            data: scores.length > 0 ? scores : [30, 50, 85, 60],
+            borderColor: '#ff5722',
+            backgroundColor: 'rgba(255, 87, 34, 0.2)',
+            fill: true,
+            tension: 0.3
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: { y: { min: 0, max: 100 } }
+        }
+      });
+    }, 120);
+  }
+
+  function unfreezeAndResumeStream() {
+    isFrozen = false;
+    const badge = document.getElementById('cam-status-badge');
+    badge.className = 'status-badge status-live';
+    badge.innerText = '🔴 實時串流中';
+
+    document.getElementById('resume-cam-btn').disabled = true;
+    document.getElementById('stream-status').innerText = '✅ 正同步接收手機預覽畫面';
+
+    const video = document.getElementById('display-video');
+    video.play();
+
+    const canvas = document.getElementById('display-canvas');
+    canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+
+    if (dataConn && dataConn.open) dataConn.send({ type: 'RESUME_STREAM' });
+  }
+
+  function unfreezeLocalStream() { alert('呈現端點擊「閱讀完成」，鏡頭恢復預覽！'); }
+
+  function handleFileUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    if (file.type.startsWith('image/')) {
+      reader.onload = (e) => sendFileToAiChat(e.target.result, "image");
+      reader.readAsDataURL(file);
+    } else if (file.type === 'text/plain') {
+      reader.onload = (e) => sendFileToAiChat(e.target.result, "text");
+      reader.readAsText(file);
+    } else {
+      reader.onload = (e) => sendFileToAiChat(e.target.result, "pdf");
+      reader.readAsDataURL(file);
+    }
+  }
+
+  function sendFileToAiChat(fileContent, fileType) {
+    appendUserMsg(`上傳檔案分析：${fileType.toUpperCase()}`);
+    fetch(GAS_API_URL, {
+      method: "POST",
+      body: JSON.stringify({ action: "chatWithAI", fileData: fileContent, fileType: fileType })
+    })
+    .then(res => res.json())
+    .then(data => appendAiMsg(data.reply, data.badges));
+  }
+
+  function sendChatMessage() {
+    const input = document.getElementById('chat-input');
+    const text = input.value.trim();
+    if (!text) return;
+
+    appendUserMsg(text);
+    input.value = '';
+
+    fetch(GAS_API_URL, {
+      method: "POST",
+      body: JSON.stringify({ action: "chatWithAI", messages: [{ role: "user", text: text }] })
+    })
+    .then(res => res.json())
+    .then(data => appendAiMsg(data.reply));
+  }
+
+  function appendUserMsg(text) {
+    const msgs = document.getElementById('chat-messages');
+    msgs.insertAdjacentHTML('beforeend', `<div class="msg msg-user">${text}</div>`);
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  function appendAiMsg(text, badges) {
+    const msgs = document.getElementById('chat-messages');
+    let badgesHtml = '';
+    if (badges) badges.forEach(b => { badgesHtml += `<span class="rhetoric-badge">${b}</span>`; });
+    msgs.insertAdjacentHTML('beforeend', `<div class="msg msg-ai">${text}<div>${badgesHtml}</div></div>`);
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  function downloadAnalysisReport() {
+    if (!currentAnalysisData) return alert('請先拍照或上傳檔案進行分析！');
+    const reportText = `語文靈感 × 結構解密 - 分析報告\n\nGemini 點評：\n${currentAnalysisData.summaryReport || '無'}\n\n修辭標籤：${(currentAnalysisData.rhetoricBadges || []).join(', ')}`;
+    const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `寫作結構分析報告_${Date.now()}.txt`;
+    a.click();
+  }
+
+  async function startMobileCamera() {
+    try {
+      mediaStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: false
+      });
+      document.getElementById('mobile-video').srcObject = mediaStream;
+
+      const targetRoom = document.getElementById('input-room-id').value;
+      if (peer && targetRoom) peer.call(targetRoom, mediaStream);
+    } catch (err) { alert("鏡頭開啟失敗: " + err.message); }
+  }
+
+  function captureAndFreeze() {
+    const video = document.getElementById('mobile-video');
+    if (!video.videoWidth) return alert('請先開啟鏡頭！');
+
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+
+    const base64Img = canvas.toDataURL('image/jpeg', 0.92);
+
+    alert('發送高畫質畫面給 Gemini AI 解析中...');
+
+    fetch(GAS_API_URL, {
+      method: "POST",
+      body: JSON.stringify({ action: "analyzeImage", base64Image: base64Img })
+    })
+    .then(res => res.json())
+    .then(response => {
+      if (response.status === 'success' && dataConn && dataConn.open) {
+        dataConn.send({
+          type: 'FREEZE_AND_ANALYZE',
+          capturedPhoto: base64Img,
+          analysis: response.data
+        });
+      } else {
+        alert("AI 分析回應錯誤：" + (response.message || "請檢查 API Key"));
+      }
+    })
+    .catch(err => alert("請求發送失敗：" + err));
+  }
+
+  async function startNfcScan() {
+    const nfcStatus = document.getElementById('nfc-result');
+    if ('NDEFReader' in window) {
+      try {
+        const ndef = new NDEFReader();
+        await ndef.scan();
+        nfcStatus.innerText = "NFC 讀取中...";
+        ndef.addEventListener("reading", ({ message }) => {
+          for (const record of message.records) {
+            const textDecoder = new TextDecoder(record.encoding);
+            sendNfcData(textDecoder.decode(record.data));
+          }
+        });
+      } catch (error) { nfcStatus.innerText = "NFC 失敗：" + error.message; }
+    } else { nfcStatus.innerText = "不支援 WebNFC (可用測試按鈕)"; }
+  }
+
+  function sendNfcData(payload) {
+    if (dataConn && dataConn.open) dataConn.send({ type: 'NFC_TRIGGER', payload: payload });
+  }
+
+  function submitRewrite() {
+    const text = document.getElementById('rewrite-input').value;
+    if (!text) return alert('請輸入內容');
+    if (dataConn && dataConn.open) dataConn.send({ type: 'REWRITE_SUBMIT', text: text });
+    alert('已送出！');
+  }
+
+  function playAudio(type) {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator(); const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.setValueAtTime(type === 'nfc' ? 523.25 : 587.33, ctx.currentTime);
+    osc.start(); osc.stop(ctx.currentTime + 0.25);
+  }
 </script>
-  <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>語文靈感 × 結構解密 - 寫作互動教具</title>
-  <!-- 替換為 jsDelivr 備用來源 -->
-<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.2/dist/peerjs.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
   <style>
     :root { --primary: #4a90e2; --secondary: #50e3c2; --bg: #f4f7f6; --card-bg: #ffffff; }
     body { font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif; margin: 0; padding: 0; background: var(--bg); color: #333; }
